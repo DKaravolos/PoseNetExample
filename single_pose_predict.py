@@ -2,10 +2,12 @@ import argparse
 import tensorflow as tf
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import matplotlib.pyplot as plt
+from os import path, mkdir
+import wget
+import numpy as np
+import cv2
 from scripts.estimate_pose import estimate_single_pose
 from scripts.common import pose_chain
-from os import path, mkdir
-
 
 # image loading functions ###
 def load_custom_img(interpreter, img_dir, img_id):
@@ -32,10 +34,52 @@ def test_image(interpreter, img, img_id):
     # running the model and displaying results
     keypoint_data = estimate_single_pose(interpreter, img_data)
     print("Keypoints are computed")
-    show_result(img, keypoint_data, img_id)
+    # show_result(img, keypoint_data, img_id)
+    write_result(img, keypoint_data, img_id, scale=1)
 
 
-def show_result(img, keypoint_data, img_id):
+# Open CV is better for image writing without white borders
+# The resulting image looks better with scale=2, but perhaps less truthful to pose. 
+# To do: scale predicted coords to original image scale with ratio.
+def write_result(img, keypoint_data, img_id, scale=1):
+    print("Writing results")
+    skel_color = (0, 255, 255)
+    img = np.uint8(img * 255)
+    sizes = img.shape
+    if scale > 1:
+        img = cv2.resize(img, (sizes[0] * scale, sizes[1] * scale))
+    # plot points:
+    x_coords, y_coords, confidence_scores = keypoint_data
+    for kp in range(len(x_coords)):
+        img = cv2.circle(img, (x_coords[kp] * scale, y_coords[kp] * scale), radius=3, color=skel_color, thickness=-1)
+
+    # plot lines of the skeleton:
+    width = 1
+    for line in pose_chain:
+        p1 = line[0]
+        p2 = line[1]
+        start = (x_coords[p1] * scale, y_coords[p1] * scale)
+        end = (x_coords[p2] * scale, y_coords[p2] * scale)
+        img = cv2.line(img, start, end, skel_color, width)
+    # plt.tight_layout()
+
+    # save output & show
+    if not path.exists("./output/"):
+        mkdir("./output/")
+    out_name = "./output/{0}".format(img_id.replace(".jpg", ".png"))
+    print("saving output to:", out_name)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(out_name, img)
+
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    plt.imshow(img)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+
+# Matplotlib has nice live visualisation, but weird artifacts when saving.
+def show_result(img, keypoint_data, img_id, save=False):
     print("Showing results")
     # plot points:
     x_coords, y_coords, confidence_scores = keypoint_data
@@ -53,11 +97,12 @@ def show_result(img, keypoint_data, img_id):
     plt.tight_layout()
 
     # save output & show
-    if not path.exists("./output/"):
-        mkdir("./output/")
-    out_name = "./output/{0}".format(img_id.replace(".jpg", ".png"))
-    print("Saving output to:", out_name)
-    plt.savefig(out_name, bbox_inches='tight', dpi=100, pad_inches=0.1)
+    if save:
+        if not path.exists("./output/"):
+            mkdir("./output/")
+        out_name = "./output/{0}".format(img_id.replace(".jpg", "-plt.png"))
+        print("Saving output to:", out_name)
+        plt.savefig(out_name, bbox_inches='tight', dpi=100, pad_inches=0.1)
     plt.show()
 
 
